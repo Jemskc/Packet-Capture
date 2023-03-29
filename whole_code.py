@@ -195,65 +195,57 @@ def send_alert_email(rule, matched_values):
 
 
 
+
 def live_capture(packet_handler=None):
-    # Create the argument parser
-    parser = argparse.ArgumentParser(description='A simple PyShark example that captures live packets from a network interface.')
+    parser = argparse.ArgumentParser(description='Packet capture and analysis tool.')
 
-    # Add the command line options
-    parser.add_argument('-i', '--interface', type=str, help='Network interface to capture packets from')
-    parser.add_argument('-n', '--num_packets', type=int, default=None, help='Limit number of packets to capture')
-    parser.add_argument('-t', '--tcp', action='store_true', help='Show only TCP packets')
-    parser.add_argument('-p', '--protocol', type=str, default=None, help='Filter packets by protocol')
-    parser.add_argument('-s', '--save_file', type=str, default=None, help='Save captured packets to a pcap file')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Print detailed packet information')
-    parser.add_argument('-o', '--output', type=str, help='Name of the pcap file to open')
+    parser.add_argument('-i', '--interface', help='Interface to capture packets from')
+    parser.add_argument('-o', '--output', help='Capture file to read packets from')
+    parser.add_argument('-s', '--save-file', help='File to save live capture packets to')
+    parser.add_argument('-n', '--num-packets', type=int, help='Number of packets to capture')
+    parser.add_argument('-p', '--protocol', help='Protocol to filter packets by')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Print packet details')
 
-    # Parse the command line arguments
     args = parser.parse_args()
 
-    # Check if neither -i nor -o options are provided
     if not args.interface and not args.output:
         print("Error: You must provide either -i (--interface) or -o (--output) option.")
         parser.print_help()
         sys.exit(1)
 
-    # Check if the output file is specified
-    
     if args.output:
-        capture = pyshark.FileCapture(args.output, use_json=True, include_raw=True)
+        capture = pyshark.FileCapture(args.output)
     else:
-        capture = pyshark.LiveCapture(interface=args.interface, use_json=True, include_raw=True)
+        capture = pyshark.LiveCapture(interface=args.interface, output_file=args.save_file)
 
-    # ... (previous code)
-
-    # Start capturing packets
     if args.output:
         for i, packet in enumerate(capture):
             if args.num_packets and i >= args.num_packets:
                 break
 
-            if args.verbose:
-                print(packet)
+            if not args.protocol or packet.highest_layer.lower() == args.protocol.lower():
+                if args.verbose:
+                    print(packet)
 
-            if packet_handler:
-                packet_handler(packet)
+                if packet_handler:
+                    packet_handler(packet)
     else:
         for i, packet in enumerate(capture.sniff_continuously(packet_count=args.num_packets)):
             if args.num_packets and i >= args.num_packets:
                 break
 
-            if args.verbose:
-                print(packet)
+            if not args.protocol or packet.highest_layer.lower() == args.protocol.lower():
+                if args.verbose:
+                    print(packet)
 
-            if packet_handler:
-                packet_handler(packet)
+                if packet_handler:
+                    packet_handler(packet)
 
 
 def main():
     parsed_rules = parse_snort_rules('snort_rules.conf')
     packet_counts= {}
     def packet_handler(packet):
-        packet_content = packet.get_raw_packet() 
         localtime = time.asctime(time.localtime(time.time()))
         packet_protocol = packet.highest_layer.lower().replace('_raw', '')
         packet_sport = None
@@ -271,17 +263,23 @@ def main():
                 packet_dport = layer.dstport
                 break
         
+        
         payload = None
         if hasattr(packet, 'tcp'):
-            payload = packet.tcp.get_field_value('payload')
+            payload = packet.tcp.get('tcp.payload')
         elif hasattr(packet, 'udp'):
-            payload = packet.udp.get_field_value('payload')
+            payload = packet.udp.get('udp.payload')
 
         if payload is not None:
         # Replace ":" in the payload
             payload = payload.replace(":", "")
         # Convert the payload to bytes
-            payload = bytes.fromhex(payload)
+            try:
+                payload = bytes.fromhex(payload)
+            except ValueError:
+                print(f"Invalid payload: {payload}")
+                payload = None
+    # Print the payload in normal form
 
         print(f"{localtime}\t{packet_protocol}\t{packet_src}\t{packet_sport}\t{packet_dst}\t{packet_dport}")
 
