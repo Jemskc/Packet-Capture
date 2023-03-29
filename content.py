@@ -2,9 +2,8 @@
 #!/usr/bin/python
 import re
 import pyshark
-import smtplib
-from email.mime.text import MIMEText
 import time
+from datetime import datetime, timedelta
 
 def parse_options(options_str):
     options = options_str[options_str.index('(') + 1:options_str.rindex(')')].split(';')
@@ -102,65 +101,91 @@ def match_port(packet_port, rule_port):
         return packet_port == rule_port
 
 
-def match_content(rule_content, packet_content):
-    content_options = []
-    for option in rule['Options']:
-        if 'content' in option:
-            content_options.append(option)
+def match_content(rule, packet_payload):
+#    if 'Options' not in rule:
+ #       return True
 
-#    print('Rule:', rule['Alert'], content_options)
+    content_options = [option for option in rule['Options'] if 'content' in option]
 
-    content_matches = []
     for option in content_options:
         value = option['content']
         value = value.strip('"')
-        if value.lower() in str(packet_content).lower():
-            content_matches.append(value)
 
-    if len(content_options) > 0 and len(content_matches) == len(content_options):
-#        print('Alert: All content options match')
-        return True
-    elif len(content_options) > 0 and len(content_matches) < len(content_options):
- #       print('Alert: Not all content options match')
-        return False
-    else:
-        return True
+        if value.startswith('|') and value.endswith('|'):
+            value = bytes.fromhex(value[1:-1].replace(' ', ''))
+            if value not in packet_payload:
+                return False
+        else:
+            if packet_payload is not None and value.lower() not in packet_payload.decode('utf-8', errors='ignore').lower():
+                return False
 
-
-
-parsed_rules = parse_snort_rules('snort_rules.conf')
-
-cap = pyshark.LiveCapture(interface='eth0',use_json=True, include_raw=True)
-cap.sniff(packet_count=10)
+    return True
 
 
 
-for packet in cap.sniff_continuously():
-    packet_content = packet.get_raw_packet() 
-    localtime = time.asctime(time.localtime(time.time()))
-    packet_protocol = packet.highest_layer.lower().replace('_raw', '')
-    packet_src = packet.ip.src
-    packet_dst = packet.ip.dst
-    for layer in packet.layers:
-                # Check if the layer has a source and destination port
-        if hasattr(layer, 'srcport') and hasattr(layer, 'dstport'):
-                    # Get the source and destination ports
-           packet_sport = layer.srcport
-           packet_dport = layer.dstport
-           break
-    print(localtime, '\t', packet_protocol, '\t', packet_src, '\t', packet_sport, '\t', packet_dst, '\t', packet_dport)
 
-#    print(packet_content)
-    for rule in parsed_rules:
-        if (match_protocol(packet_protocol, rule['Protocol']) and
-            match_direction(packet_src, packet_dst, rule['Source Address'], rule['Destination Address'], rule['Direction']) and
-            match_address(packet_src, rule['Source Address']) and
-            match_address(packet_dst, rule['Destination Address']) and
-            match_port(packet_sport, rule['Source Port']) and
-            match_port(packet_dport, rule['Destination Port'])and
-            match_content(rule['Available Option Values'], packet_content)):
-            for option in rule['Options']:
-                
-                if 'msg' in option.keys():
-                    print(option['msg'])
+
+def main():
+    # Parse the Snort rules from the file
+    parsed_rules = parse_snort_rules("snort_rules.conf")
+
+    def packet_handler(packet):
+        localtime = time.asctime(time.localtime(time.time()))
+        packet_protocol = packet.highest_layer.lower().replace('_raw', '')
+        packet_sport = None
+        packet_dport = None
+        if 'IP' in packet:
+            packet_src = packet['IP'].src
+            packet_dst = packet['IP'].dst
+        else:
+            packet_src = 'N/A'
+            packet_dst = 'N/A'
+
+        for layer in packet.layers:
+            if hasattr(layer, 'srcport') and hasattr(layer, 'dstport'):
+               packet_sport = layer.srcport
+               packet_dport = layer.dstport
+               break
+
+        print(f"{localtime}\t{packet_protocol}\t{packet_src}\t{packet_sport}\t{packet_dst}\t{packet_dport}")
+
+    # Get the payload
+        if hasattr(packet, 'tcp'):
+            payload = packet.tcp.get_field_value('payload').replace(":", "")
+        elif hasattr(packet, 'udp'):
+            payload = packet.udp.get_field_value('payload').replace(":","")
+        else:
+            payload = b''
+
+    # Print the payload in normal form
+        print("\nPayload (normal form):")
+        print(payload)
+
+    # Print the payload in hex form
+ #       print("\nPayload (hex form):")
+#        print(payload.hex())
+
+        for rule in parsed_rules:
+            if (match_protocol(packet_protocol, rule['Protocol']) and
+               match_direction(packet_src, packet_dst, rule['Source Address'], rule['Destination Address'], rule['Direction']) and
+               match_address(packet_src, rule['Source Address']) and
+               match_address(packet_dst, rule['Destination Address']) and
+               match_port(packet_sport, rule['Source Port']) and
+               match_port(packet_dport, rule['Destination Port']) and
+               match_content(rule, payload)):
+               matched_values = [option['content'].strip('"') for option in rule['Options'] if 'content' in option]
+               for option in rule['Options']:
+                   if 'msg' in option.keys():
+                       print(option['msg'])
+    
+    def live_capture(packet_handler):
+        capture = pyshark.LiveCapture(interface='eth0')
+        capture.apply_on_packets(packet_handler)
+
+    live_capture(packet_handler)
+
+if __name__ == "__main__":
+    main()    
+    
+    
 
