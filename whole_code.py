@@ -1,6 +1,6 @@
  #!/usr/bin/python
-
-
+import sys
+import json
 import re
 import pyshark
 import smtplib
@@ -92,29 +92,23 @@ def match_port(packet_port, rule_port):
         return packet_port == rule_port
 
 
-def match_content(rule_content, packet_content):
-    content_options = []
-    for option in rule['Options']:
-        if 'content' in option:
-            content_options.append(option)
 
-#    print('Rule:', rule['Alert'], content_options)
+def match_content(rule, packet_payload):
+    content_options = [option for option in rule['Options'] if 'content' in option]
 
-    content_matches = []
     for option in content_options:
         value = option['content']
         value = value.strip('"')
-        if value.lower() in str(packet_content).lower():
-            content_matches.append(value)
 
-    if len(content_options) > 0 and len(content_matches) == len(content_options):
-#        print('Alert: All content options match')
-        return True
-    elif len(content_options) > 0 and len(content_matches) < len(content_options):
- #       print('Alert: Not all content options match')
-        return False
-    else:
-        return True
+        if value.startswith('|') and value.endswith('|'):
+            value = bytes.fromhex(value[1:-1].replace(' ', ''))
+            if packet_payload is None or value not in packet_payload:
+                return False
+        else:
+            if packet_payload is None or value.lower() not in packet_payload.decode('utf-8', errors='ignore').lower():
+                return False
+
+    return True
 
 
 
@@ -159,26 +153,17 @@ def check_threshold(rule, packet, packet_counts):
 
 
 def match_packet_to_rule(packet, rule):
-    # Match TCP flags with flow option in the rule
-    if 'flow' in rule['Available Options']:
-        for option in rule['Options']:
-            if 'flow' in option:
-                # Check for flow option 'to_server'
+    ...
+    for option in rule['Options']:
+        if 'flow' in option.keys():
+            if hasattr(packet, 'tcp'):  # Add this condition
                 if 'to_server' in option['flow'] and packet.tcp.flags_syn == '0' and packet.tcp.flags_ack == '1':
-                    return True
-                # Check for flow option 'to_client'
-                elif 'to_client' in option['flow'] and packet.tcp.flags_push == '1' and packet.tcp.flags_ack == '1':
-                    return True
-                # Check for flow option 'established'
-                elif 'established' in option['flow'] and packet.tcp.flags_syn == '0' and packet.tcp.flags_ack == '1':
-                    return True
-                # Check for flow option 'to_client,established'
-                elif 'to_client' in option['flow'] and 'established' in option['flow'] and packet.tcp.flags_syn == '0' and packet.tcp.flags_ack == '1':
-                    return True
-                # Check for flow option 'to_server,established'
-                elif 'to_server' in option['flow'] and 'established' in option['flow'] and packet.tcp.flags_syn == '0' and packet.tcp.flags_ack == '1':
-                    return True
-    return False
+                    ...
+                elif 'to_client' in option['flow'] and packet.tcp.flags_syn == '1' and packet.tcp.flags_ack == '1':
+                    ...
+            else:
+                return False
+    ...
 
 
 
@@ -215,46 +200,58 @@ def live_capture(packet_handler=None):
     parser = argparse.ArgumentParser(description='A simple PyShark example that captures live packets from a network interface.')
 
     # Add the command line options
-    parser.add_argument('-i', '--interface', type=str, default=None, help='Network interface to capture packets from')
+    parser.add_argument('-i', '--interface', type=str, help='Network interface to capture packets from')
     parser.add_argument('-n', '--num_packets', type=int, default=None, help='Limit number of packets to capture')
     parser.add_argument('-t', '--tcp', action='store_true', help='Show only TCP packets')
     parser.add_argument('-p', '--protocol', type=str, default=None, help='Filter packets by protocol')
     parser.add_argument('-s', '--save_file', type=str, default=None, help='Save captured packets to a pcap file')
     parser.add_argument('-v', '--verbose', action='store_true', help='Print detailed packet information')
+    parser.add_argument('-o', '--output', type=str, help='Name of the pcap file to open')
 
     # Parse the command line arguments
     args = parser.parse_args()
 
-    # Create the live capture object
-    capture = pyshark.LiveCapture(interface=args.interface, use_json=True, include_raw=True)
+    # Check if neither -i nor -o options are provided
+    if not args.interface and not args.output:
+        print("Error: You must provide either -i (--interface) or -o (--output) option.")
+        parser.print_help()
+        sys.exit(1)
 
-    # Apply the filters
-    if args.tcp:
-        capture.set_debug()
-        capture.filter('tcp')
-    if args.protocol:
-        capture.set_debug()
-        capture.filter(args.protocol)
+    # Check if the output file is specified
+    
+    if args.output:
+        capture = pyshark.FileCapture(args.output, use_json=True, include_raw=True)
+    else:
+        capture = pyshark.LiveCapture(interface=args.interface, use_json=True, include_raw=True)
+
+    # ... (previous code)
 
     # Start capturing packets
-    for i, packet in enumerate(capture.sniff_continuously(packet_count=args.num_packets)):
-        if args.num_packets and i >= args.num_packets:
-            break
+    if args.output:
+        for i, packet in enumerate(capture):
+            if args.num_packets and i >= args.num_packets:
+                break
 
-        if args.verbose:
-            print(packet)
+            if args.verbose:
+                print(packet)
 
-        if packet_handler:
-            packet_handler(packet)
+            if packet_handler:
+                packet_handler(packet)
+    else:
+        for i, packet in enumerate(capture.sniff_continuously(packet_count=args.num_packets)):
+            if args.num_packets and i >= args.num_packets:
+                break
 
-        if args.save_file:
-            with open(args.save_file, 'ab') as f:
-                f.write(bytes(packet))
+            if args.verbose:
+                print(packet)
+
+            if packet_handler:
+                packet_handler(packet)
 
 
 def main():
     parsed_rules = parse_snort_rules('snort_rules.conf')
-
+    packet_counts= {}
     def packet_handler(packet):
         packet_content = packet.get_raw_packet() 
         localtime = time.asctime(time.localtime(time.time()))
@@ -273,6 +270,18 @@ def main():
                 packet_sport = layer.srcport
                 packet_dport = layer.dstport
                 break
+        
+        payload = None
+        if hasattr(packet, 'tcp'):
+            payload = packet.tcp.get_field_value('payload')
+        elif hasattr(packet, 'udp'):
+            payload = packet.udp.get_field_value('payload')
+
+        if payload is not None:
+        # Replace ":" in the payload
+            payload = payload.replace(":", "")
+        # Convert the payload to bytes
+            payload = bytes.fromhex(payload)
 
         print(f"{localtime}\t{packet_protocol}\t{packet_src}\t{packet_sport}\t{packet_dst}\t{packet_dport}")
 
@@ -282,76 +291,29 @@ def main():
                 match_address(packet_src, rule['Source Address']) and
                 match_address(packet_dst, rule['Destination Address']) and
                 match_port(packet_sport, rule['Source Port']) and
-                match_port(packet_dport, rule['Destination Port'])and
-                match_content(rule['Available Option Values'], packet_content)):
-                matched_values = [option['content'].strip('"') for option in rule['Options'] if 'content' in option]
-                for option in rule['Options']:
-                    if 'msg' in option.keys():
-                        print(option['msg'])
-                send_alert_email(rule, matched_values)
+                match_port(packet_dport, rule['Destination Port'])):
+
+                match = True
+
+                if 'content' in rule['Available Options']:
+                    match &= match_content(rule, payload)
+
+                if 'threshold' in rule['Available Options']:
+                    match &= check_threshold(rule, packet, packet_counts)
+
+                if 'flow' in rule['Available Options']:
+                    match &= match_packet_to_rule(packet, rule)
+
+                if match:
+                    matched_values = [option['content'].strip('"') for option in rule['Options'] if 'content' in option]
+                    for option in rule['Options']:
+                        if 'msg' in option.keys():
+                            print(option['msg'])
+               # send_alert_email(rule, matched_values)
+
+#                send_alert_email(rule, matched_values)
 
     live_capture(packet_handler=packet_handler)
-
-
-
-def print_packets(run=False):
-    if not run:
-        return
-
-    def print_pcap_packets(src=False, dst=False, num_packets=None, tcp=False, file_name=None):
-        # create the argument parser
-        parser = argparse.ArgumentParser(description='A simple PyShark example that prints packets from a pcap file.')
-
-        # add the command line options
-        parser.add_argument('--src', action='store_true', help='Print source IP address only')
-        parser.add_argument('--dst', action='store_true', help='Print destination IP address only')
-        parser.add_argument('-n', '--num_packets', type=int, default=None, help='Limit number of packets to display')
-        parser.add_argument('-t', '--tcp', action='store_true', help='Show only TCP packets')
-        parser.add_argument('-o', '--output', type=str, default=None, help='Name of the pcap file to open')
-        parser.add_argument('-p', '--protocol', type=str, default=None, help='Filter packets by protocol')
-        # parse the command line arguments
-        args = parser.parse_args()
-        
-        try:
-        # check if the user specified a file name
-            if args.output:
-               file_name = args.output
-            else:
-               raise ValueError("pcap file missing -o option")
-
-        # open the pcap file
-            cap = pyshark.FileCapture(file_name)
-
-        # loop through each packet in the pcap file
-            for i, packet in enumerate(cap):
-            # exit if we have displayed the maximum number of packets
-                if args.num_packets is not None and i >= args.num_packets:
-                   break
-
-            # check if we should filter by protocol
-                if args.tcp and 'TCP' not in packet.highest_layer:
-                   continue
-                if args.protocol and args.protocol.upper() not in packet.highest_layer.upper():
-                   continue
-            # print the appropriate fields based on the command line options
-                if args.src:
-                   print(packet.ip.src)
-                elif args.dst:
-                   print(packet.ip.dst)
-                else:
-                   print(packet.ip.src, packet.ip.dst, packet.highest_layer)
-
-        except ValueError as e:
-            print("Error occurred:", e)
-            exit()
-        except Exception as e:
-            print("Error occurred:", e)
-            exit()
-        # The rest of the print_pcap_packets function remains the same...
-
-    print_pcap_packets()
-
-
 
 
 if __name__ == "__main__":
