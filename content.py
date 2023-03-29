@@ -102,9 +102,6 @@ def match_port(packet_port, rule_port):
 
 
 def match_content(rule, packet_payload):
-#    if 'Options' not in rule:
- #       return True
-
     content_options = [option for option in rule['Options'] if 'content' in option]
 
     for option in content_options:
@@ -113,10 +110,10 @@ def match_content(rule, packet_payload):
 
         if value.startswith('|') and value.endswith('|'):
             value = bytes.fromhex(value[1:-1].replace(' ', ''))
-            if value not in packet_payload:
+            if packet_payload is None or value not in packet_payload:
                 return False
         else:
-            if packet_payload is not None and value.lower() not in packet_payload.decode('utf-8', errors='ignore').lower():
+            if packet_payload is None or value.lower() not in packet_payload.decode('utf-8', errors='ignore').lower():
                 return False
 
     return True
@@ -150,20 +147,21 @@ def main():
         print(f"{localtime}\t{packet_protocol}\t{packet_src}\t{packet_sport}\t{packet_dst}\t{packet_dport}")
 
     # Get the payload
+        payload = None
         if hasattr(packet, 'tcp'):
-            payload = packet.tcp.get_field_value('payload').replace(":", "")
+            payload = packet.tcp.get_field_value('payload')
         elif hasattr(packet, 'udp'):
-            payload = packet.udp.get_field_value('payload').replace(":","")
-        else:
-            payload = b''
+            payload = packet.udp.get_field_value('payload')
+
+        if payload is not None:
+        # Replace ":" in the payload
+            payload = payload.replace(":", "")
+        # Convert the payload to bytes
+            payload = bytes.fromhex(payload)
 
     # Print the payload in normal form
         print("\nPayload (normal form):")
         print(payload)
-
-    # Print the payload in hex form
- #       print("\nPayload (hex form):")
-#        print(payload.hex())
 
         for rule in parsed_rules:
             if (match_protocol(packet_protocol, rule['Protocol']) and
@@ -177,7 +175,8 @@ def main():
                for option in rule['Options']:
                    if 'msg' in option.keys():
                        print(option['msg'])
-    
+
+
     def live_capture(packet_handler):
         capture = pyshark.LiveCapture(interface='eth0')
         capture.apply_on_packets(packet_handler)
