@@ -1,4 +1,5 @@
- #!/usr/bin/python
+#!/usr/bin/python
+import os
 import sys
 import json
 import re
@@ -7,6 +8,9 @@ import smtplib
 from email.mime.text import MIMEText
 import time
 import argparse
+from datetime import datetime, timedelta
+import psutil
+import sqlite3
 
 def parse_options(options_str):
     options = options_str[options_str.index('(') + 1:options_str.rindex(')')].split(';')
@@ -99,7 +103,7 @@ def match_content(rule, packet_payload):
     for option in content_options:
         value = option['content']
         value = value.strip('"')
-
+   
         if value.startswith('|') and value.endswith('|'):
             value = bytes.fromhex(value[1:-1].replace(' ', ''))
             if packet_payload is None or value not in packet_payload:
@@ -122,7 +126,7 @@ def check_threshold(rule, packet, packet_counts):
             if 'both' in threshold_type.lower() or 'limit' in threshold_type.lower():
                 count = int(threshold_count.split()[1])
                 seconds = int(threshold_seconds.split()[1])
-
+   
                 if 'by_src' in threshold_track.lower():
                     src_ip = packet.ip.src
 
@@ -153,18 +157,16 @@ def check_threshold(rule, packet, packet_counts):
 
 
 def match_packet_to_rule(packet, rule):
-    ...
     for option in rule['Options']:
         if 'flow' in option.keys():
             if hasattr(packet, 'tcp'):  # Add this condition
                 if 'to_server' in option['flow'] and packet.tcp.flags_syn == '0' and packet.tcp.flags_ack == '1':
-                    ...
+                    return True
                 elif 'to_client' in option['flow'] and packet.tcp.flags_syn == '1' and packet.tcp.flags_ack == '1':
-                    ...
+                    return True
             else:
                 return False
-    ...
-
+    return False
 
 
 def send_alert_email(rule, matched_values):
@@ -189,67 +191,102 @@ def send_alert_email(rule, matched_values):
         server.login(email_address, email_password)
         server.sendmail(email_address, msg['To'], msg.as_string())
         server.quit()
-        print(f"Email alert sent to {msg['To']}")
+#        print(f"Email alert sent to {msg['To']}")
     except Exception as e:
         print(f"Failed to send email alert: {e}")
 
 
+conn = sqlite3.connect('packets.db')
+cursor = conn.cursor()
+
+# Create a table for the packets if it doesn't exist
+cursor.execute('''CREATE TABLE IF NOT EXISTS packets (
+                time TEXT, protocol TEXT, src_addr TEXT, dst_addr TEXT, src_port INTEGER, dst_port INTEGER)''')
+
+
+def run_alert(msg, localtime, packet_protocol, packet_src, packet_dst, packet_sport, packet_dport):
+    alert_msg = f"{msg}\nTime: {localtime}, Protocol: {packet_protocol}, Src: {packet_src}:{packet_sport}, Dst: {packet_dst}:{packet_dport}\n"
+    with open('alert.log', 'a') as f:
+        f.write(alert_msg + '\n')
 
 
 def live_capture(packet_handler=None):
-    parser = argparse.ArgumentParser(description='Packet capture and analysis tool.')
-
-    parser.add_argument('-i', '--interface', help='Interface to capture packets from')
-    parser.add_argument('-o', '--output', help='Capture file to read packets from')
-    parser.add_argument('-s', '--save-file', help='File to save live capture packets to')
-    parser.add_argument('-n', '--num-packets', type=int, help='Number of packets to capture')
-    parser.add_argument('-p', '--protocol', help='Protocol to filter packets by')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Print packet details')
+    parser = argparse.ArgumentParser(description="""This is the Packet capture and analysis capture packet wiht APT group. This tool has two feature one is to capture the packet and analyze the packet wiht the rules file for malicious packet detection.
+      
+    You have to specify either -i option for captureing live packet of -o option for opening the cpature pcap file. Do not use both at once.
+      
+    For example: python <script.name> -i interface_name (to live capture packet)
+     or python <script.name> -o <file.pcap> (to open pcap file)""", formatter_class=argparse.RawTextHelpFormatter )
+ 
+    parser.add_argument('-i', '--interface',metavar='', help='To specify the interface that is runnning in your OS for live packet capturing.')
+    parser.add_argument('-o', '--open', metavar='', help='To open the pcap file')
+    parser.add_argument('-s', '--save_file', metavar='',help='To save the livecapture packet in a file.')
+    parser.add_argument('-n', '--number_of_packets', metavar='', type=int, help='To capture the limited number of packets to capture.')
+    parser.add_argument('-p', '--protocol', metavar='', help='To specify one protocol and capture packet of that protocol only.')
+    parser.add_argument('-v', '--verbose', action='store_true', help='To capture the packet with all the layer inforamtion.')
 
     args = parser.parse_args()
 
-    if not args.interface and not args.output:
-        print("Error: You must provide either -i (--interface) or -o (--output) option.")
+    if not args.interface and not args.open:
+        print("Error: You must provide either -i (--interface) or -o (--open) option.")
         parser.print_help()
         sys.exit(1)
-
-    if args.output:
-        capture = pyshark.FileCapture(args.output)
+    if args.open:
+        extension_of_file = os.path.splitext(args.open)[1]
+        if extension_of_file.lower() not in ['.pcapng', ".pcap"]:
+           print("Error: The file must have .pcap of .pcapng")
+           sys.exit(1)
+        try:
+           capture = pyshark.FileCapture(args.open)
+        except FileNotFoundError as e:
+           print("Error: The file doesnot exit. Please check the file path.")
+           sys.exit(1)
     else:
-        capture = pyshark.LiveCapture(interface=args.interface, output_file=args.save_file)
+        try:
+           capture = pyshark.LiveCapture(interface=args.interface, output_file=args.save_file)
+        except pyshark.capture.live_capture.UnknownInterfaceException as e:
+           print(f"Error: The provided interface '{args.interface}' does not exist or could not be accessed. Please check the interface name or your permissions.")
+           sys.exit(1)
 
-    if args.output:
+    header_format = "{:<35} {:<15} {:<20} {:<15} {:<20} {:<15}"
+    print(header_format.format("Time", "Protocol", "Source IP", "Src Port", "Destination IP", "Dst Port"))
+    print("------------------------------------------------------------------------------------------------------------------------------     ")
+
+    if args.open:
         for i, packet in enumerate(capture):
-            if args.num_packets and i >= args.num_packets:
+            if args.number_of_packets and i >= args.number_of_packets:
                 break
 
             if not args.protocol or packet.highest_layer.lower() == args.protocol.lower():
+                if packet_handler(packet):
+                    packet_handler(packet)
                 if args.verbose:
                     print(packet)
 
-                if packet_handler:
-                    packet_handler(packet)
     else:
-        for i, packet in enumerate(capture.sniff_continuously(packet_count=args.num_packets)):
-            if args.num_packets and i >= args.num_packets:
+        for i, packet in enumerate(capture.sniff_continuously(packet_count=args.number_of_packets)):
+            if args.number_of_packets and i >= args.number_of_packets:
                 break
 
             if not args.protocol or packet.highest_layer.lower() == args.protocol.lower():
+                if packet_handler(packet):
+                    packet_handler(packet)
                 if args.verbose:
                     print(packet)
 
-                if packet_handler:
-                    packet_handler(packet)
+
+
 
 
 def main():
+
     parsed_rules = parse_snort_rules('snort_rules.conf')
     packet_counts= {}
     def packet_handler(packet):
         localtime = time.asctime(time.localtime(time.time()))
         packet_protocol = packet.highest_layer.lower().replace('_raw', '')
-        packet_sport = None
-        packet_dport = None
+        packet_sport = None or ''
+        packet_dport = None or ''
         if 'IP' in packet:
             packet_src = packet['IP'].src
             packet_dst = packet['IP'].dst
@@ -277,12 +314,11 @@ def main():
             try:
                 payload = bytes.fromhex(payload)
             except ValueError:
-                print(f"Invalid payload: {payload}")
+#                print(f"Invalid payload: {payload}")
                 payload = None
     # Print the payload in normal form
-
-        print(f"{localtime}\t{packet_protocol}\t{packet_src}\t{packet_sport}\t{packet_dst}\t{packet_dport}")
-
+        header_format = "{:<35} {:<15} {:<20} {:<15} {:<20} {:<15}"
+        print(header_format.format(localtime, packet_protocol, packet_src, packet_sport, packet_dst, packet_dport ))
         for rule in parsed_rules:
             if (match_protocol(packet_protocol, rule['Protocol']) and
                 match_direction(packet_src, packet_dst, rule['Source Address'], rule['Destination Address'], rule['Direction']) and
@@ -306,13 +342,19 @@ def main():
                     matched_values = [option['content'].strip('"') for option in rule['Options'] if 'content' in option]
                     for option in rule['Options']:
                         if 'msg' in option.keys():
-                            print(option['msg'])
-               # send_alert_email(rule, matched_values)
+                            print("")
+                            print("Alert: ",option['msg'])
+                            print("")
+                            send_alert_email(rule, matched_values)
+                            run_alert(option['msg'], localtime, packet_protocol, packet_src, packet_dst, packet_sport, packet_dport)
 
-#                send_alert_email(rule, matched_values)
+        cursor.execute("INSERT INTO packets VALUES (?,?,?,?,?,?)", (localtime,packet_protocol,packet_src,packet_dst,packet_sport,packet_dport))
+        conn.commit()
 
     live_capture(packet_handler=packet_handler)
 
-
 if __name__ == "__main__":
     main()
+
+
+conn.close()      
