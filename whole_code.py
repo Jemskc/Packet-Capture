@@ -170,8 +170,8 @@ def match_packet_to_rule(packet, rule):
 
 
 def send_alert_email(rule, matched_values):
-    email_address = 'kcj94355@gmail.com'
-    email_password = 'ykfirsbcglfreqls'
+    email_address = 'abc@gmail.com'
+    email_password = 'your_password'
     smtp_server = 'smtp.gmail.com'
     smtp_port = 587
     
@@ -182,8 +182,8 @@ def send_alert_email(rule, matched_values):
     content_str = ", ".join(matched_values)
     msg = MIMEText(f"Packet content matched for rule: {rule['Options']}\nMatched content: {content_str}")
     msg['Subject'] = f"Alert: Packet content matched for rule {rule['Options']}"
-    msg['From'] = "kcj94355@gmail.com"
-    msg['To'] = "np01nt4s210051@islingtoncollege.edu.np"
+    msg['From'] = "abc@gmail.com"
+    msg['To'] = "123@gmail.com"
     
     try:
         server = smtplib.SMTP(smtp_server, smtp_port)
