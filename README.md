@@ -7,66 +7,68 @@ It supports Snort-style rule parsing, threshold detection, content matching, ema
 
 The system is able to:
 
-Capture packets live from a specified interface
+1) Capture packets live from a specified interface
 
-Analyze packets from PCAP files
+2) Analyze packets from PCAP files
 
-Parse Snort-like rule structures
+3) Parse Snort-like rule structures
 
-Match packets against rule conditions
+4) Match packets against rule conditions
 
-Detect malicious patterns based on IPs, ports, protocol, content, flow, and thresholds
+5) Detect malicious patterns based on IPs, ports, protocol, content, flow, and thresholds
 
-Store packet metadata inside a SQLite database
+6) Store packet metadata inside a SQLite database
 
-Generate alerts into a log file
+7) Generate alerts into a log file
 
-Send email notifications when rules match
+8) Send email notifications when rules match
 
 
 This tool demonstrates how rule-based IDS engines operate internally.
 
 
 **Features**
+
 1. Snort-Style Rule Parsing
 
 Supports full rule structure, including:
 
-Protocol
+    Protocol
 
-Source / Destination IP
+    Source / Destination IP
 
-Ports
+    Ports
 
-Direction (->, <-, <>, any)
+    Direction (->, <-, <>, any)
 
-Options: content, msg, flow, threshold
+    Options: content, msg, flow, threshold
 
 Additional capabilities:
 
-Extracts all option key-value pairs
+    Extracts all option key-value pairs
 
-Supports ASCII and Hex content patterns (|AA BB CC|)
+    Supports ASCII and Hex content patterns (|AA BB CC|)
 
 
-2. Live Packet Capture
+**2. Live Packet Capture
+**
 
 Uses PyShark for real-time capture:
 
-Protocol filtering
+    Protocol filtering
 
-Continuous monitoring
+    Continuous monitoring
 
-Packet count limits
+    Packet count limits
 
-Save captured traffic to PCAP file
+    Save captured traffic to PCAP file
 
 
 3. PCAP File Analysis
 
 Analyze offline packet capture:
 
-python script.py -o file.pcap
+      python script.py -o file.pcap
 
 
 
@@ -74,63 +76,64 @@ python script.py -o file.pcap
 
 Alerts triggered for matches on:
 
-Protocol
+    Protocol
 
-Direction
+    Direction
 
-IP / Port
+    IP / Port
 
-Payload content
+    Payload content
 
-Flow rules
+    Flow rules
 
-Threshold rules
+    Threshold rules
 
-Alert delivery channels:
+    Alert delivery channels:
 
-Console output
+    Console output
 
-alert.log
+    alert.log
 
-Email notification (SMTP)
+    Email notification (SMTP)
 
 
 5. SQLite Logging
 
 Each packet is saved with:
 
-Timestamp
+    Timestamp
 
-Protocol
+    Protocol
 
-Source IP / Port
+    Source IP / Port
 
-Destination IP / Port
+    Destination IP / Port
 
-Stored in packets.db for future review.
+    Stored in packets.db for future review.
 
 
 **Requirements**
 
-Dependency	Purpose
-Python 3.x	Main runtime
-PyShark	Packet capture
-Tshark	Backend for PyShark
-SQLite3	Database logging
-psutil	System utilities
-smtplib	Email alerts
-re/json/os/sys/time	Utility libs
+Dependency	         Purpose
+
+Python 3.x	         Main runtime
+PyShark	             Packet capture
+Tshark	             Backend for PyShark
+SQLite3	             Database logging
+psutil	             System utilities
+smtplib	             Email alerts
+re/json/os/sys/time	 Utility libs
 
 
 **Install dependencies:
 **
 
-pip install pyshark psutil
+      pip install pyshark psutil
 
 
 **Install Tshark (required for PyShark):
 **
-sudo apt-get install tshark
+      sudo apt-get install tshark
 
 
 **Usage**
@@ -139,34 +142,34 @@ sudo apt-get install tshark
 
 Capture from interface:
 
-python script.py -i eth0
+      python script.py -i eth0
 
 
 Only capture TCP packets:
 
-python script.py -i eth0 -p tcp
+      python script.py -i eth0 -p tcp
 
 
 Save captured packets:
 
-python script.py -i wlan0 -s captured.pcap
+      python script.py -i wlan0 -s captured.pcap
 
 
 Capture limited number of packets:
 
-python script.py -i eth0 -n 50
+      python script.py -i eth0 -n 50
 
 
 Verbose mode:
 
-python script.py -i eth0 -v
+      python script.py -i eth0 -v
 
 
 
 **2. Analyze a PCAP File
 **
 
-python script.py -o sample.pcap
+        python script.py -o sample.pcap
 
 
 
@@ -185,79 +188,66 @@ alert tcp any any -> 192.168.1.10 80 (msg:"Possible Attack"; content:"GET"; thre
 **
 1. alert.log
 
-Stores all generated alerts.
+    Stores all generated alerts.
 
 
 2. packets.db
 
-SQLite database of all captured packets.
+    SQLite database of all captured packets.
 
 
 3. Console Output
 
-
 Displays:
 
-Time
-
-Protocol
-
-Source → Destination
-
-Ports
-
-
-Email Alerting
-
-Uses Gmail SMTP.
+      Time, Protocol, Source → Destination, Ports, Email Alerting, Uses Gmail SMTP.
 
 Set credentials:
 
 email_address = 'your_email@gmail.com'
 email_password = 'your_generated_app_password'
 
-
 Enable App Passwords in Google Account if using 2FA.
 
 
-Program Flow Summary
+**Program Flow Summary
+**
+    Parse Snort rules
 
-Parse Snort rules
+    Start packet capture (live or PCAP)
 
-Start packet capture (live or PCAP)
+    Extract protocol, ports, IPs, payload
 
-Extract protocol, ports, IPs, payload
-
-Compare packet to rule conditions
+    Compare packet to rule conditions
 
 **Evaluate**:
 
-Protocol match
-
-Direction match
-
-IP/Port match
-
-Payload content
-
-Threshold and flow
-
-Generate alerts
-
-Save packet metadata in database
-
-Send email alerts as needed
+    Protocol match
+    
+    Direction match
+    
+    IP/Port match
+    
+    Payload content
+    
+    Threshold and flow
+    
+    Generate alerts
+    
+    Save packet metadata in database
+    
+    Send email alerts as needed
 
 
 **Future Enhancements
 **
-GUI dashboard
-
-Multi-threading for high-speed networks
-
-Automated signature/rule updating
-
-Integrate machine learning anomaly detection
+    GUI dashboard
+    
+    Multi-threading for high-speed networks
+    
+    Automated signature/rule updating
+    
+    Integrate machine learning anomaly detection
 
 
 **Disclaimer**
