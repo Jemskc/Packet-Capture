@@ -53,9 +53,16 @@ On each captured packet, the engine extracts the protocol, source/destination IP
 
 ```
 Packet-Capture/
-├── whole_code.py             # Main IDS — capture, rule matching, alerting, logging
-├── live.py                   # Standalone live capture prototype (no rule matching)
+├── main.py                   # Entry point — run this to start the IDS
+├── ids/
+│   ├── rules.py              # Snort rule file parser
+│   ├── matcher.py            # All packet-vs-rule matching logic
+│   ├── alerter.py            # Console, log file, and email alerting
+│   ├── database.py           # SQLite wrapper (PacketDatabase class)
+│   └── capture.py            # CLI argument parsing and packet capture loop
 ├── snort_rules.conf          # Detection rules in Snort syntax
+├── whole_code.py             # Original monolithic version (legacy reference)
+├── live.py                   # Standalone live capture prototype (legacy reference)
 ├── docs/
 │   ├── code_breakdown.md     # Function-by-function source code documentation
 │   ├── architecture.md       # System architecture and data flow
@@ -105,16 +112,16 @@ brew install wireshark
 
 ```bash
 # Live capture on a network interface
-sudo python whole_code.py -i eth0
+sudo python main.py -i eth0
 
 # Analyze an existing PCAP file
-python whole_code.py -o capture.pcap
+python main.py -o capture.pcap
 
 # Capture only TCP packets, limit to 100, save to file
-sudo python whole_code.py -i eth0 -p tcp -n 100 -s output.pcap
+sudo python main.py -i eth0 -p tcp -n 100 -s output.pcap
 
 # Verbose mode (prints all packet layers)
-sudo python whole_code.py -i eth0 -v
+sudo python main.py -i eth0 -v
 ```
 
 ### CLI Flags
